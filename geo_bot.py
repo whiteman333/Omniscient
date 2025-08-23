@@ -69,7 +69,7 @@ Your response MUST be a valid JSON object wrapped in ```json ... ```.
 ```
 """
 
-TEST_AGENT_PROMPT_TEMPLATE = """
+TEST_AGENT_PROMPT_TEMPLATE_NAIVE = """
 **Mission:** You are an expert geo-location agent. Your goal is to pinpoint our position based on the surroundings and your observation history.
 
 **Current Status**
@@ -95,9 +95,7 @@ TEST_AGENT_PROMPT_TEMPLATE = """
 
 4.  **Be Decisive:** A unique, definitive clue (full address, rare town name, etc.) ⇒ `GUESS` immediately.
 
-5.  **Final-Step Rule:** If **Remaining Steps = 1**, you **MUST** `GUESS` and you should carefully check the image and the surroundings.
-
-6.  **Always Predict:** On EVERY step, provide your current best estimate of the location, even if you're not ready to make a final guess.
+5.  **Always Predict:** On EVERY step, provide your current best estimate of the location, even if you're not ready to make a final guess.
 
 ────────────────────────────────
 **Context & Task:**
@@ -133,6 +131,107 @@ Your response MUST be a valid JSON object wrapped in ```json ... ```.
 }}
 ```
 
+"""
+
+TEST_AGENT_PROMPT_TEMPLATE = """
+**Mission:** You are an expert geo-location agent. Your goal is to pinpoint our position based on the surroundings and your observation history.
+
+**Current Status**
+• Actions You Can Take *this* turn: {available_actions}
+
+────────────────────────────────
+**Core Principles & Strategy**
+
+1.  🧠 **Observe → Orient → Act**
+    Start each turn with a structured three-part reasoning block:
+    **(1) Visual Clues —** Describe the *entire scene*, not just one object. Describe ONLY what you can clearly see. If uncertain, state your uncertainty.
+    **(2) Potential Regions —** List plausible regions. Based on the "Think Like a Geographer" principle, if you have a primary candidate, you **must** also list its neighbors with similar biomes as secondary options.
+    **(3) Most Probable + Plan —** Pick the single likeliest region, state your **confidence level (Low, Medium, High)**, and explain your plan. If confidence is not High, your plan should be to find a clue that *differentiates* between your top choices.
+
+2.  🌍 **Think Like a Geographer (Crucial for Accuracy)**
+    * **Borders are Fuzzy:** Vegetation, soil color, and architecture don't stop at political lines.
+    * **Always Consider Neighbors:** When a strong clue points to Country X, you **MUST** consider its direct neighbors with similar climates as plausible secondary options.
+    * **Language is a Strong Hint, Not Absolute Proof:** A word in a specific language is a powerful clue but not 100% definitive, especially in border regions.
+    * **Action Logic Check:** Before moving towards a target, ensure your action (`FORWARD`, `BACKWARD`) logically matches the target's direction relative to you.
+
+3.  🎯 **Prioritize Information Gain (The "Clue Hunter" Rule)**
+    * **Go for the Best Clue:** Your primary goal is to find **definitive clues**. If you spot a potential source of information (a **road sign, text, a unique building**), your immediate objective is to **move towards it**.
+    * **Always Re-evaluate Your Target:** While moving towards an objective (e.g., a distant building), you **must** stay observant of the entire scene. If a *new*, potentially more valuable clue appears (e.g., a sign with text becomes visible), you **must** immediately update your objective to investigate the new, better clue. **Text is almost always more valuable than a generic building.**
+
+4.  🧭 **Smart Exploration in Different Environments**
+    * **At Intersections & New Locations:** Always perform a quick panoramic scan (`PAN_LEFT`/`PAN_RIGHT`) *before* moving forward.
+    * **In Barren Landscapes:** Do a quick 360° pan first. If you see nothing, `MOVE_FORWARD` 3-4 times. If the scenery *still* hasn't changed, `MOVE_BACKWARD` and explore the other direction.
+
+5.   mechanics **Mechanics & Decisiveness**
+    * Use `MOVE_FORWARD` and `MOVE_BACKWARD` to navigate.
+    * When you find a unique, definitive clue (a national flag, a full address with country) ⇒ `GUESS` immediately.
+
+6.  📍 **Always Predict**
+    On EVERY step, provide your current best estimate of the location.
+
+────────────────────────────────
+**Context & Task:**
+Analyze your full journey history and current view, apply the Core Principles, and decide your next action in the required JSON format.
+
+**Action History**
+{history_text}
+
+────────────────────────────────
+**JSON Output Format:**
+Your response MUST be a valid JSON object wrapped in ```json ... ```.
+{{
+  "reasoning": "Your detailed, step-by-step thought process, following the three-part structure.",
+  "strategic_summary": {{
+    "key_clues": [
+      {{
+        "clue": "A single, significant piece of evidence found so far in the journey.",
+        "inferred_regions": ["A list of regions/countries this specific clue points to."]
+      }}
+    ],
+    "plausible_regions": ["Your final, synthesized list of possible regions after considering the intersection and union of all clues."]
+  }},
+  "current_prediction": {{
+    "lat": <float>,
+    "lon": <float>,
+    "location_description": "Brief description of predicted location"
+  }},
+  "action_details": {{
+    "action": "action chosen from the available actions",
+    "objective": "A concise sentence describing the immediate goal of your action. (e.g., 'Read the text on the distant sign', 'Reach the upcoming intersection to get oriented', 'Escape this monotonous road')."
+  }}
+}}
+**Example **
+```json
+{{
+  "reasoning": "(1) Visual Clues — I see left-side driving, eucalyptus trees, and a yellow speed-warning sign; the road markings are solid white. (2) Potential Regions — The primary candidate is Southeastern Australia or Tasmania. New Zealand's North Island is a secondary possibility. (3) Most Probable + Plan — The scene most likely sits in a suburb of Hobart, Tasmania, with Medium confidence. I will PAN_LEFT to look for additional road signs that can confirm this over mainland Australia.",
+  "strategic_summary": {{
+    "key_clues": [
+      {{
+        "clue": "Left-side driving",
+        "inferred_regions": ["Australia", "New Zealand", "UK", "South Africa", "Japan"]
+      }},
+      {{
+        "clue": "Eucalyptus trees",
+        "inferred_regions": ["Australia"]
+      }},
+      {{
+        "clue": "Yellow, diamond-shaped warning sign",
+        "inferred_regions": ["Australia", "New Zealand", "North America"]
+      }}
+    ],
+    "plausible_regions": ["Tasmania, Australia", "Southeastern Australia", "North Island, New Zealand"]
+  }},
+  "current_prediction": {{
+    "lat": -42.8806,
+    "lon": 147.3250,
+    "location_description": "Hobart suburb, Tasmania, Australia"
+  }},
+  "action_details": {{
+    "action": "PAN_LEFT",
+    "objective": "Pan left to find a road sign that can confirm the location is Tasmania."
+  }}
+}}
+```
 """
 
 BENCHMARK_PROMPT = """
@@ -256,6 +355,8 @@ class GeoBot:
             if decision
             else {"action": "N/A"},
         }
+        if decision.get("strategic_summary", None) is not None:
+            step["strategic_summary"] = decision.get("strategic_summary")
         history.append(step)
         return step
 
@@ -431,7 +532,7 @@ class GeoBot:
             
             self.execute_action(action)
 
-        return predictions
+        return predictions,history
     
     def run_agent_loop(
         self, max_steps: int = 10, step_callback=None

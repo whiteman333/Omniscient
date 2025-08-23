@@ -280,7 +280,7 @@ if start_button:
                             iteration_counter += 1
                             model_bar.progress(iteration_counter/total_iterations)
                             continue
-                        predictions = bot.test_run_agent_loop(max_steps=steps_per_sample)
+                        predictions,history = bot.test_run_agent_loop(max_steps=steps_per_sample)
                         true_coords = {"lat": sample["lat"], "lng": sample["lng"]}
                         for step_idx, pred in enumerate(predictions):
                             if isinstance(pred, dict) and "lat" in pred:

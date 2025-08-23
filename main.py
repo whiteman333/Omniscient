@@ -3,7 +3,9 @@ import json
 import os
 from datetime import datetime
 from typing import Optional
-
+import base64
+from io import BytesIO
+from PIL import Image   
 from geo_bot import GeoBot
 from benchmark import MapGuesserBenchmark
 from data_collector import DataCollector
@@ -208,7 +210,7 @@ def test_mode(
     avg_distances: dict[str, float] = {}
 
     time_tag   = datetime.now().strftime("%Y%m%d_%H%M%S")
-    base_dir   = os.path.join("./results", "test", time_tag)
+    base_dir   = os.path.join("./results", f"{dataset_name}", time_tag)
     os.makedirs(base_dir, exist_ok=True)
     # ---------- iterate over models ----------
     for model_name in models:
@@ -222,7 +224,7 @@ def test_mode(
         total_iterations = runs * len(test_samples)
 
         with tqdm(total=total_iterations, desc=model_name) as pbar:
-            for _ in range(runs):
+            for run in range(runs):
                 with GeoBot(
                     model=model_cls,
                     model_name=cfg["model_name"],
@@ -234,13 +236,18 @@ def test_mode(
                             pbar.update(1)
                             continue
 
-                        preds = bot.test_run_agent_loop(max_steps=steps)
+                        preds,history = bot.test_run_agent_loop(max_steps=steps)
                         gt = {"lat": sample["lat"], "lng": sample["lng"]}
                         if sample["id"] not in log_json:
                             log_json[sample["id"]] = []
-                        
+                        picture_dir=f"{base_dir}/{model_name}/log_picture/{sample['id']}/runs_{run}"
+                        os.makedirs(picture_dir, exist_ok=True)
+                        for idx,step in enumerate(history):
+                            image_data = base64.b64decode(step["screenshot_b64"])
+                            image = Image.open(BytesIO(image_data))
+                            image.save(f"{picture_dir}/step_{idx}.png")
+                            image.close()
                         for idx, pred in enumerate(preds):
-                            
                             if isinstance(pred, dict) and "lat" in pred:
                                 dist = benchmark_helper.calculate_distance(
                                     gt, (pred["lat"], pred["lon"])
@@ -254,7 +261,7 @@ def test_mode(
                                     else:
                                         preds[idx]["success"] = False
                         log_json[sample["id"]].append({
-                            "run_id": _,
+                            "run_id": run,
                             "predictions": preds,
                             })         
                         pbar.update(1)
@@ -272,30 +279,6 @@ def test_mode(
             json.dump(payload, f, indent=2)
         print(f"💾 results saved to {base_dir}")
 
-    # ---------- pretty table ----------
-    header = ["Step"] + list(summary_by_step.keys())
-    row_width = max(len(h) for h in header) + 2
-    print("\n=== ACCURACY PER STEP ===")
-    print(" | ".join(h.center(row_width) for h in header))
-    print("-" * (row_width + 3) * len(header))
-    for i in range(steps):
-        cells = [str(i + 1).center(row_width)]
-        for m in summary_by_step:
-            cells.append(f"{summary_by_step[m][i]*100:5.1f}%".center(row_width))
-        print(" | ".join(cells))
-
-    print("\n=== AVG DISTANCE PER STEP (km) ===")
-    header = ["Step"] + list(avg_distances.keys())
-    row_w  = max(len(h) for h in header) + 2
-    print(" | ".join(h.center(row_w) for h in header))
-    print("-" * (row_w + 3) * len(header))
-
-    for i in range(steps):
-        cells = [str(i+1).center(row_w)]
-        for m in avg_distances:
-            v = avg_distances[m][i]
-            cells.append(f"{v:6.1f}" if v is not None else "  N/A ".center(row_w))
-        print(" | ".join(cells))
 
     try:
         for model, acc in summary_by_step.items():
